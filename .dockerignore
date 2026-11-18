@@ -1,0 +1,9 @@
+videos/
+tests/
+tools/
+docs/
+node_modules/
+.git/
+.github/
+*.md
+docker-compose.yml

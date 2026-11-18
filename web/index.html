@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProjectorCal</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">ProjectorCal <span class="sub">camera-assisted projector calibration</span></div>
+  <div class="chips">
+    <span class="chip" id="chip-camera">Camera: off</span>
+    <span class="chip" id="chip-display">Display: –</span>
+    <span class="chip" id="chip-screen">Screen: not located</span>
+    <span class="chip" id="chip-curve">Camera curve: assumed sRGB</span>
+  </div>
+</header>
+
+<div class="layout">
+  <nav class="steps" id="nav">
+    <button data-view="setup" class="active"><b>1</b> Setup</button>
+    <button data-view="connect"><b>2</b> Connect</button>
+    <button data-view="sdr"><b>3</b> SDR calibration</button>
+    <button data-view="hdr"><b>4</b> HDR</button>
+    <button data-view="report"><b>5</b> Report</button>
+  </nav>
+
+  <main>
+    <!-- ------------------------------------------------------------ SETUP -->
+    <section id="view-setup" class="view">
+      <h1>Your projector and its current settings</h1>
+      <p class="lede">Enter what the projector menu shows now. The app records each change you make and works out the best value for every setting. Projectors keep separate settings per picture mode, so SDR and HDR each get their own profile.</p>
+
+      <div class="card">
+        <div class="grid2">
+          <label>Projector preset
+            <select id="preset"></select>
+          </label>
+          <label>Model / notes
+            <input id="model" type="text" placeholder="e.g. Acer H7850">
+          </label>
+          <label>Room while watching
+            <select id="room">
+              <option value="dark">Dark (lights off) — target gamma 2.4</option>
+              <option value="dim">Dim — target gamma 2.3</option>
+              <option value="bright">Lights on — target gamma 2.2</option>
+            </select>
+          </label>
+          <label>Screen size (diagonal, inches)
+            <input id="screenIn" type="number" min="40" max="300" step="1">
+          </label>
+          <label>Screen gain
+            <input id="gain" type="number" min="0.3" max="3" step="0.05">
+          </label>
+          <label>Projector brightness spec (ANSI lumens)
+            <input id="lumens" type="number" min="100" max="10000" step="50">
+          </label>
+        </div>
+        <p class="hint" id="nits-est"></p>
+      </div>
+
+      <div class="tabs" id="profile-tabs">
+        <button data-mode="sdr" class="active">SDR profile</button>
+        <button data-mode="hdr">HDR profile</button>
+      </div>
+      <div class="card" id="profile-editor"></div>
+      <div class="card" id="processing-tips"></div>
+      <p class="hint">Number ranges are starting guesses. If your menu runs −50…+50 or 0…20, change Min/Max/Default to match. That keeps the suggestions in your projector's own units.</p>
+    </section>
+
+    <!-- ------------------------------------------------------------ CONNECT -->
+    <section id="view-connect" class="view" hidden>
+      <h1>Connect the projector and the camera</h1>
+
+      <div class="card">
+        <h2>A. How patterns get to the projector</h2>
+        <div class="radio-row" id="display-mode">
+          <label><input type="radio" name="dmode" value="window" checked> <b>Extended display</b> (recommended)</label>
+          <label><input type="radio" name="dmode" value="mirror"> <b>Screen mirroring</b></label>
+          <label><input type="radio" name="dmode" value="external"> <b>Videos on the Apple TV</b> (most accurate; needed for HDR)</label>
+        </div>
+        <div class="mode-help" data-for="window">
+          <ol>
+            <li>Mac: Control Center › Screen Mirroring › your Apple TV › choose <b>Use As Separate Display</b>.</li>
+            <li>System Settings › Displays › the Apple TV display: pick the resolution that matches the Apple TV output (3840×2160 / "looks like 1920×1080" for 4K).</li>
+            <li><button id="open-window" class="primary">Open pattern window</button> Drag it onto the projector display and click inside it to go full screen.</li>
+          </ol>
+          <p class="status-line" id="window-status">Pattern window not open.</p>
+        </div>
+        <div class="mode-help" data-for="mirror" hidden>
+          <ol>
+            <li>Mac: Control Center › Screen Mirroring › your Apple TV › <b>Mirror Built-in Display</b>. In Displays settings, choose "Optimize for: Apple TV" so the picture is 16:9 and fills the screen.</li>
+            <li>Patterns cover this whole browser window. <button id="go-fullscreen">Make this window full screen</button></li>
+            <li>While a pattern is up: <kbd>Space</kbd> measures, <kbd>Esc</kbd> or a click returns to the app. Instructions also appear at the top of the pattern.</li>
+          </ol>
+        </div>
+        <div class="mode-help" data-for="external" hidden>
+          <p>The app watches the camera while you play the generated pattern videos on the Apple TV itself. That bypasses the Mac and AirPlay entirely and is the only way to test HDR.</p>
+          <ol>
+            <li>Generate the videos once: <code>python3 tools/make_videos.py</code> (in the ProjectorCal folder; about 2 minutes).</li>
+            <li>Get them onto the Apple TV: AirDrop them to an iPhone and AirPlay from the Photos app, or import them into Photos (iCloud Photos then shows them in the Apple TV Photos app), or play them from a media app such as Infuse that reads a shared folder.</li>
+            <li>Each video starts with black/white flashes, then holds its pattern for 3 minutes. Use "Locate from video flashes" below as it starts.</li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>B. Camera</h2>
+        <div class="row">
+          <select id="camera-select"><option value="">Default camera</option></select>
+          <button id="camera-start" class="primary">Start camera</button>
+          <label class="inline"><input type="checkbox" id="wb-lock"> Lock white balance at 6500 K (if the camera allows)</label>
+        </div>
+        <p class="status-line" id="camera-status"></p>
+        <details>
+          <summary>Getting a good camera view</summary>
+          <ul>
+            <li><b>Best:</b> an iPhone as a Continuity Camera, on a tripod or propped at your seat, landscape, screen facing away from the projector screen. It is far more sensitive in the dark than the MacBook camera, and you keep the laptop in front of you.</li>
+            <li><b>iPhone not in the list?</b> Lock it and set it down, landscape and still, near the Mac. If it still doesn't appear, Chrome may not see Continuity Camera at all: open the app in <b>Safari</b>, which does. Each browser keeps its own settings, so move them with <i>Export JSON</i> / <i>Import JSON</i> on the Report page. In Safari, set Safari › Settings › Websites › Camera › localhost to <i>Allow</i> so it stops asking.</li>
+            <li>With the MacBook camera, point the lid at the screen. In mirror mode the instructions show on the projector.</li>
+            <li>Turn off <b>Center Stage, Portrait, Studio Light and Reactions</b>: Control Center › Video Effects while the camera is on. They crop and alter the picture.</li>
+            <li>Frame the whole projected image so it fills most of the view, with a little margin. Don't move the camera after locating the screen.</li>
+            <li>Room fully dark and the camera roughly at your seating position. Keep the camera itself out of the light beam.</li>
+          </ul>
+        </details>
+      </div>
+
+      <div class="card">
+        <h2>C. Find the picture in the camera view</h2>
+        <div class="row">
+          <button id="locate" class="primary">Locate screen (flash black/white)</button>
+          <button id="locate-flash">Locate from video flashes</button>
+          <button id="show-overscan">Show sample regions</button>
+        </div>
+        <p class="status-line" id="locate-status"></p>
+        <p class="hint">Check the camera preview: the green outline should sit exactly on the projected image. Drag its corners to fine-tune.</p>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------------------ SDR -->
+    <section id="view-sdr" class="view" hidden>
+      <h1>SDR calibration</h1>
+      <p class="lede">Work top to bottom. For each step: <b>Measure</b>, make the change the app asks for on the projector, close the projector menu, and measure again until it says done. <kbd>Space</kbd> measures the highlighted step, <kbd>Y</kbd>/<kbd>N</kbd> answer by eye.</p>
+      <div id="sdr-cards"></div>
+    </section>
+
+    <!-- ------------------------------------------------------------ HDR -->
+    <section id="view-hdr" class="view" hidden>
+      <h1>HDR: why it looks barely better than SDR</h1>
+      <p class="lede">Most "HDR looks flat" problems are signal-chain settings rather than calibration, so check these first. Answer what you can; the likely causes update as you go.</p>
+      <div class="hdr-grid">
+        <div class="card" id="hdr-questions"></div>
+        <div class="card" id="hdr-findings"></div>
+      </div>
+      <h2 class="section-title">HDR measurements (generated videos on the Apple TV)</h2>
+      <p class="hint">Switch the projector to its HDR mode (play the video; with HDR set to Auto it switches by itself). The HDR profile in Setup holds the HDR-mode settings. Locate the screen from the video's opening flashes if the camera has moved.</p>
+      <div id="hdr-cards"></div>
+    </section>
+
+    <!-- ------------------------------------------------------------ REPORT -->
+    <section id="view-report" class="view" hidden>
+      <h1>Report</h1>
+      <div class="row">
+        <button id="copy-report">Copy as text</button>
+        <button id="export-json">Export JSON</button>
+        <label class="file-btn">Import JSON<input type="file" id="import-json" accept="application/json" hidden></label>
+        <button id="reset-all" class="danger">Reset everything</button>
+      </div>
+      <div id="report"></div>
+    </section>
+  </main>
+
+  <aside class="dock">
+    <div class="preview">
+      <video id="video" muted playsinline></video>
+      <canvas id="preview-overlay"></canvas>
+      <div class="preview-empty" id="preview-empty">Camera off</div>
+    </div>
+    <div class="row small">
+      <button id="ref-draw" title="Drag a box around an iPhone/iPad showing a white screen">Set reference screen box</button>
+      <button id="ref-clear">Clear</button>
+    </div>
+    <p class="hint small" id="dock-status"></p>
+    <div id="busy" class="busy" hidden><span id="busy-text">Measuring…</span> <button id="abort">Stop</button></div>
+  </aside>
+</div>
+
+<div id="overlay" hidden><canvas id="overlay-canvas"></canvas></div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "projectorcal",
+  "private": true,
+  "type": "module",
+  "description": "Camera-assisted projector calibration (static web app + pattern video generator)",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "export-patterns": "node tools/export_patterns.mjs"
+  }
+}

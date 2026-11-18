@@ -1,0 +1,8 @@
+# Standalone run: `docker compose up -d --build`, then open http://localhost:7904
+# Change the port with PORT=8080 docker compose up -d --build
+services:
+  projectorcal:
+    build: .
+    ports:
+      - "127.0.0.1:${PORT:-7904}:80" # localhost only; the camera API needs localhost or HTTPS
+    restart: unless-stopped
