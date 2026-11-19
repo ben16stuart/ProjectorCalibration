@@ -259,6 +259,20 @@ function cameraExponentFromDithers(c50, c25, cK) {
   return g;
 }
 
+// A line patch the camera partly resolves (moire, shimmer) is averaged in camera codes
+// instead of in light. To second order that undercounts it by 1/2 f'' var / f, where f
+// is the camera curve and var is the patch's pixel spread beyond the solid next to it.
+// Returns that relative undercount (0 when the camera blurs the lines into gray).
+function lineAveragingBias(st, solidSt, cam) {
+  const ev = Math.max(0, st.sd[1] ** 2 - solidSt.sd[1] ** 2);
+  if (!ev) return 0;
+  const c = lumaCode(st.mean);
+  const f = (x) => cam.lin(Math.min(255, Math.max(0, x)));
+  const h = 4;
+  const f2 = (f(c + h) - 2 * f(c) + f(c - h)) / (h * h);
+  return f(c) > 0 ? (0.5 * f2 * ev) / f(c) : 0;
+}
+
 export function analyzeGamma(pattern, stats, cam) {
   const { rows, refs } = pattern.meta;
   const notes = [];
@@ -267,16 +281,22 @@ export function analyzeGamma(pattern, stats, cam) {
   requireStats(stats, [refs.black]);
   for (const row of rows) {
     requireStats(stats, row.pairs.flatMap((p) => [p.dither, p.ditherRight, p.solid]));
+    const biases = [];
     const rel = row.pairs.map((p) => {
+      const sol = stats[p.solid];
+      const bL = lineAveragingBias(stats[p.dither], sol, cam);
+      const bR = lineAveragingBias(stats[p.ditherRight], sol, cam);
+      biases.push(bL, bR);
       // average of the dithers on both sides cancels brightness gradients
-      const d = (linY(stats[p.dither].mean, cam) + linY(stats[p.ditherRight].mean, cam)) / 2;
-      const s = linY(stats[p.solid].mean, cam);
+      const d = (linY(stats[p.dither].mean, cam) * (1 + bL) + linY(stats[p.ditherRight].mean, cam) * (1 + bR)) / 2;
+      const s = linY(sol.mean, cam);
       return (s - d) / d;
     });
-    // Is the camera resolving the individual lines? Then it is not averaging
-    // them in linear light and the row is unusable.
+    // Mild shimmer is corrected above. When the correction gets large, the camera is
+    // really seeing the lines and a second-order fix can't be trusted: skip the row.
     const sdRatio = mean(row.pairs.map((p) => stats[p.dither].sd[1] / Math.max(0.5, stats[p.solid].sd[1])));
-    const resolved = sdRatio > 2.5;
+    const lineBias = Math.max(...biases);
+    const resolved = lineBias > 0.03;
     let gamma = null;
     let bound = null;
     const gs = row.pairs.map((p) => p.gamma);
@@ -300,7 +320,7 @@ export function analyzeGamma(pattern, stats, cam) {
     }
     const monotone = rel.every((r, k) => k === 0 || r >= rel[k - 1] - 0.01);
     const ditherCode = mean(row.pairs.map((p) => lumaCode(stats[p.dither].mean)));
-    out.push({ key: row.key, name: row.name, p: row.p, rel, gamma, bound, resolved, sdRatio, monotone, ditherCode, reliable: !resolved && monotone && gamma != null });
+    out.push({ key: row.key, name: row.name, p: row.p, rel, gamma, bound, resolved, sdRatio, lineBias, monotone, ditherCode, reliable: !resolved && monotone && gamma != null });
   }
 
   const h = out.find((r) => r.key === 'h');
@@ -314,12 +334,18 @@ export function analyzeGamma(pattern, stats, cam) {
       gamma50 = Math.max(h.gamma, v.gamma);
     } else gamma50 = (h.gamma + v.gamma) / 2;
   } else if (fifty.length === 1) gamma50 = fifty[0].gamma;
-  if (out.some((r) => r.resolved)) notes.push('The camera can make out the individual fine lines in some patches, so those rows were skipped. Move the camera back a little, or zoom out.');
+  if (out.some((r) => r.resolved)) {
+    notes.push('The camera sees the individual fine lines in some rows clearly enough to skew them, so those rows were skipped. Move the camera back so the picture fills less of the view (then Locate again), or set the projector display to its full resolution so the lines are finer.');
+  } else if (out.some((r) => r.lineBias > 0.01)) {
+    notes.push('The camera shows a slight shimmer in the fine lines; the reading is corrected for it.');
+  }
   const gamma25 = d && d.reliable ? d.gamma : null;
 
   let cameraExponent = null;
-  const r50 = [h, v].filter((r) => r && !r.resolved);
-  if (r50.length && d && !d.resolved && !r50.some((r) => cameraSaturated(stats[`${r.key}d0`]))) {
+  // the camera curve comes from raw line-patch codes, so only use clean rows for it
+  const clean = (r) => r && r.lineBias <= 0.01;
+  const r50 = [h, v].filter(clean);
+  if (r50.length && clean(d) && !r50.some((r) => cameraSaturated(stats[`${r.key}d0`]))) {
     const g = cameraExponentFromDithers(mean(r50.map((r) => r.ditherCode)), d.ditherCode, lumaCode(black.mean));
     if (g != null && g > 1.4 && g < 3.5) cameraExponent = g;
   }

@@ -163,6 +163,26 @@ test('gamma: recovers the projector gamma from the dither/solid pairs', () => {
   }
 });
 
+test('gamma: a sharp camera that shimmers on the fine lines still measures gamma', () => {
+  // The old check (line patch 2.5x noisier than the solid) skipped every row here,
+  // although the shimmer only skews the average by well under 1%.
+  const res = analyze('gamma', makeProjector({ gamma: 2.3, sharp: true }));
+  assert.ok(res.rows.every((r) => !r.resolved), JSON.stringify(res.rows.map((r) => [r.key, r.sdRatio, r.lineBias])));
+  assert.ok(Math.abs(res.gamma - 2.3) < 0.08, `measured ${res.gamma}`);
+  assert.equal(res.confidence, 'high');
+});
+
+test('gamma: rows where the camera clearly sees the lines are skipped', () => {
+  const pat = getPattern('gamma');
+  const st = measure('gamma', makeProjector({ gamma: 2.3 }));
+  // make every line patch look strongly modulated, as when the camera resolves the lines
+  for (const row of pat.meta.rows) for (const pr of row.pairs) for (const id of [pr.dither, pr.ditherRight]) st[id] = { ...st[id], sd: st[id].sd.map(() => 40) };
+  const res = ANALYZERS.gamma(pat, st, srgbCam);
+  assert.ok(res.rows.every((r) => r.resolved));
+  assert.equal(res.gamma, null);
+  assert.equal(res.confidence, 'none');
+});
+
 test('gamma: estimates the camera tone-curve exponent', () => {
   const res = analyze('gamma', makeProjector({ gamma: 2.3 }));
   assert.ok(res.cameraExponent > 1.9 && res.cameraExponent < 2.7, `camera exponent ${res.cameraExponent}`);

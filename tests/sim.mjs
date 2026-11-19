@@ -35,6 +35,7 @@ export function makeProjector(over = {}) {
     overscan: 0,
     hdrClip: 1000,
     hdrExp: 0.8,
+    sharp: false, // skip the lens blur: fine lines reach the camera sensor
     hotspot: 0, // extra brightness at the centre (screen gain / lens), e.g. 0.6 = +60%
     hotspotWidth: 0.15, // its spread, as a fraction of the picture
     ...over,
@@ -138,8 +139,9 @@ export function screenImage(pattern, p) {
       }
     }
   }
-  // lens blur (3-tap binomial twice ~ sigma 1 px) so fine lines average in linear light
-  for (const ch of out) blur(ch);
+  // lens blur (3-tap binomial twice ~ sigma 1 px) so fine lines average in linear light;
+  // sharp: a sharp phone lens that leaves the camera to sample the lines (moire)
+  if (!p.sharp) for (const ch of out) blur(ch);
   return out;
 }
 
