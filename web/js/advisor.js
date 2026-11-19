@@ -511,7 +511,8 @@ export function adviseHdrHighlights(result, { profile, searches }) {
       break;
     case 'flat':
       headline = 'HDR is being squashed to look like SDR';
-      detail.push('Highlights get barely any extra brightness above ordinary white, which is the classic cause of "HDR looks barely better than SDR". A darker tone-mapping setting gives highlights room to stand out.');
+      detail.push('First check the projector\'s info screen says HDR while the video plays. If it says SDR, something upstream converted the video and squashed it: a media server transcoding it (Plex: check its dashboard shows Direct Play, not Transcode) or the Apple TV not switching to HDR (turn on Match Dynamic Range).');
+      detail.push('If the projector does show HDR: highlights get barely any extra brightness above ordinary white, which is the classic cause of "HDR looks barely better than SDR". A darker tone-mapping setting gives highlights room to stand out.');
       dirWord = 'darker';
       break;
     case 'early-clip':

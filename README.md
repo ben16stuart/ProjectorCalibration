@@ -137,7 +137,7 @@ This needs `ffmpeg` with libx264 and libx265, Python 3 with `numpy` and `Pillow`
 | `black`, `white`, `gamma`, `grayscale`, `colorclip`, `overscan` | SDR: H.264, BT.709, limited range |
 | `hdr_black`, `hdr_hl1000`, `hdr_hl4000` | HDR10: HEVC Main10, BT.2020/PQ, mastering and MaxCLL metadata (1,000 or 4,000 nits), tagged `hvc1` for Apple devices |
 
-Each video starts with black/white flashes that the app uses to find the screen, then holds its pattern for 3 minutes. To play them on an Apple TV: AirPlay them from an iPhone's Photos app, put them in iCloud Photos and open the Apple TV Photos app, or use a player such as Infuse with a shared folder. While an HDR file plays, check the projector's info screen says HDR.
+Each video starts with black/white flashes that the app uses to find the screen, then holds its pattern for 3 minutes. To play them on an Apple TV: AirPlay them from an iPhone's Photos app, put them in iCloud Photos and open the Apple TV Photos app, or use a player such as Infuse or Plex. While an HDR file plays, check the projector's info screen says HDR. A media server that transcodes instead of playing the file directly (Plex: the dashboard shows Transcode rather than Direct Play) converts HDR to SDR, and the HDR tests then measure that conversion instead of your projector.
 
 ## How it stays honest with a consumer camera
 
