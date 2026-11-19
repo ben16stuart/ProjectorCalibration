@@ -79,7 +79,7 @@ export class Measurer {
       const white = await this.#averageLuma(6);
       const diff = new Float32Array(black.length);
       for (let i = 0; i < diff.length; i++) diff[i] = white[i] - black[i];
-      const r = detectQuad(diff, this.camera.width, this.camera.height);
+      const r = detectQuad(diff, this.camera.width, this.camera.height, { edgeImage: white });
       if (r.ok) this.setCorners(r.corners);
       return r;
     } finally {
@@ -111,7 +111,7 @@ export class Measurer {
           lastCheck = now;
           const diff = new Float32Array(w * h);
           for (let i = 0; i < diff.length; i++) diff[i] = hi[i] - lo[i];
-          const r = detectQuad(diff, w, h);
+          const r = detectQuad(diff, w, h, { edgeImage: hi });
           if (r.ok && r.coverage > 0.05) {
             if (last && r.corners.every((c, i) => Math.hypot(c[0] - last[i][0], c[1] - last[i][1]) < 2)) {
               this.setCorners(r.corners);

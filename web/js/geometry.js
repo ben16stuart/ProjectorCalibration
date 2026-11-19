@@ -149,12 +149,105 @@ function isConvex(c) {
   return true;
 }
 
+// Sample at continuous camera coordinates, where pixel i covers [i, i+1) (centre i + 0.5).
+function bilinear(img, w, h, cx, cy) {
+  const x = cx - 0.5;
+  const y = cy - 0.5;
+  if (!(x >= 0 && y >= 0 && x <= w - 1 && y <= h - 1)) return NaN;
+  const x0 = Math.min(w - 2, Math.floor(x));
+  const y0 = Math.min(h - 2, Math.floor(y));
+  const ax = x - x0;
+  const ay = y - y0;
+  const i = y0 * w + x0;
+  return (1 - ay) * ((1 - ax) * img[i] + ax * img[i + 1]) + ay * ((1 - ax) * img[i + w] + ax * img[i + w + 1]);
+}
+
+function medianOf(a) {
+  const s = [...a].sort((x, y) => x - y);
+  return s.length ? s[s.length >> 1] : 0;
+}
+
+/** Total-least-squares line, refitted without points far from it. */
+function robustLine(pts) {
+  let line = fitLineTLS(pts);
+  for (let it = 0; it < 2; it++) {
+    const res = pts.map(([x, y]) => Math.abs((x - line.p[0]) * line.d[1] - (y - line.p[1]) * line.d[0]));
+    const lim = Math.max(1, 3 * 1.4826 * medianOf(res));
+    const keep = pts.filter((_, i) => res[i] <= lim);
+    if (keep.length < 8) break;
+    line = fitLineTLS(keep);
+  }
+  return line;
+}
+
+/**
+ * Move each edge of the outline to where `img` falls off most steeply from inside to
+ * outside. A threshold on the white-minus-black difference drifts outward when the
+ * camera overexposes the white flash and blooms or haloes around it (phones do, in a
+ * dark room); the steepest drop stays on the real picture edge.
+ */
+export function refineEdges(img, w, h, corners) {
+  const S = Math.max(w, h);
+  const reach = Math.max(6, 0.06 * S);
+  const step = 0.5;
+  const lines = [];
+  for (let e = 0; e < 4; e++) {
+    const a = corners[e];
+    const b = corners[(e + 1) % 4];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len < 20) return null;
+    const tx = (b[0] - a[0]) / len;
+    const ty = (b[1] - a[1]) / len;
+    const nx = -ty; // inward normal: corners run clockwise (TL, TR, BR, BL) with y down
+    const ny = tx;
+    const found = [];
+    const N = 60;
+    for (let k = 0; k < N; k++) {
+      const t = 0.15 + (0.7 * k) / (N - 1);
+      const px = a[0] + t * (b[0] - a[0]);
+      const py = a[1] + t * (b[1] - a[1]);
+      const prof = [];
+      for (let s = -reach; s <= reach + 1e-9; s += step) {
+        let acc = 0;
+        let cnt = 0;
+        for (let u = -3; u <= 3; u++) {
+          const v = bilinear(img, w, h, px + s * nx + u * tx, py + s * ny + u * ty);
+          if (!Number.isNaN(v)) (acc += v), cnt++;
+        }
+        prof.push(cnt ? acc / cnt : NaN);
+      }
+      let best = -Infinity;
+      let bi = -1;
+      for (let i = 2; i < prof.length - 2; i++) {
+        const g = prof[i + 1] - prof[i - 1]; // brightness gained over 1 px going inward
+        if (g > best) (best = g), (bi = i);
+      }
+      if (bi < 0 || !(best > 0)) continue;
+      const gm = prof[bi] - prof[bi - 2];
+      const gp = prof[bi + 2] - prof[bi];
+      const den = gm - 2 * best + gp;
+      const off = den < 0 ? Math.max(-1, Math.min(1, (0.5 * (gm - gp)) / den)) : 0;
+      const sEdge = -reach + (bi + off) * step;
+      found.push({ x: px + sEdge * nx, y: py + sEdge * ny, g: best });
+    }
+    if (found.length < 12) return null;
+    const gMed = medianOf(found.map((f) => f.g));
+    const pts = found.filter((f) => f.g >= 0.3 * gMed).map((f) => [f.x, f.y]);
+    if (pts.length < 12) return null;
+    lines.push(robustLine(pts));
+  }
+  const out = [intersect(lines[3], lines[0]), intersect(lines[0], lines[1]), intersect(lines[1], lines[2]), intersect(lines[2], lines[3])];
+  if (!out.every((c, i) => c && Math.hypot(c[0] - corners[i][0], c[1] - corners[i][1]) < 0.1 * S)) return null;
+  return isConvex(out) ? out : null;
+}
+
 /**
  * Find the projected image from a white-minus-black difference image.
  * diff: Float32Array of length w*h (luma difference, 0..255).
+ * edgeImage: optional luma of the white frame; edges are refined on it (else on diff).
  * Returns { ok, corners:[TL,TR,BR,BL], reason, touchesEdge, coverage }.
  */
-export function detectQuad(diff, w, h) {
+export function detectQuad(diff, w, h, { edgeImage = null } = {}) {
   const p99 = percentile(diff, 0.995);
   if (p99 < 12) return { ok: false, reason: 'The camera saw almost no change between the black and white frames. Is the pattern on the projector, and is the camera pointed at the screen?' };
   const thr = 0.4 * p99;
@@ -241,6 +334,9 @@ export function detectQuad(diff, w, h) {
     const sane = refined.every((c, i) => c && Math.hypot(c[0] - corners[i][0], c[1] - corners[i][1]) < 0.05 * Math.max(w, h));
     if (sane) corners = refined;
   }
+
+  const refined = refineEdges(edgeImage || diff, w, h, corners);
+  if (refined) corners = refined;
 
   if (!isConvex(corners)) return { ok: false, reason: 'The detected outline is not a clean rectangle. Make sure nothing blocks the screen and the room is dark.' };
   const coverage = polygonArea(corners) / (w * h);

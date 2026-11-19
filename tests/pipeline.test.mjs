@@ -21,12 +21,16 @@ function avgLuma(frames) {
   return acc;
 }
 
-function locate(proj) {
-  const b = avgLuma(shootPattern('black-full', proj, cam, 3));
-  const w = avgLuma(shootPattern('white-full', proj, cam, 3));
+function locate(proj, camera = cam) {
+  const b = avgLuma(shootPattern('black-full', proj, camera, 3));
+  const w = avgLuma(shootPattern('white-full', proj, camera, 3));
   const diff = new Float32Array(b.length);
   for (let i = 0; i < diff.length; i++) diff[i] = w[i] - b[i];
-  return detectQuad(diff, CW, CH);
+  return detectQuad(diff, CW, CH, { edgeImage: w });
+}
+
+function cornerErrors(r) {
+  return r.corners.map((c, i) => Math.hypot(c[0] - TRUE_CORNERS[i][0], c[1] - TRUE_CORNERS[i][1]));
 }
 
 const located = locate(makeProjector());
@@ -70,6 +74,15 @@ test('finds the projected image to within ~1.5 camera pixels', () => {
   });
   const [x, y] = applyH(H, 0.5, 0.5);
   assert.ok(x > 300 && x < 360 && y > 160 && y < 210);
+});
+
+test('finds the image edge, not the glow, when a phone camera overexposes the white flash', () => {
+  // A phone keeps the long exposure it chose for the dark screen: the white flash clips
+  // and a wide halo spreads past the picture. A plain threshold put the outline ~15 px
+  // outside the picture here, so every patch was sampled in the wrong place.
+  const r = locate(makeProjector(), makeCamera({ flare: 0.6, flareRadius: 16, exposureBias: 14 }));
+  assert.ok(r.ok, r.reason);
+  cornerErrors(r).forEach((err, i) => assert.ok(err < 1.5, `corner ${i} off by ${err.toFixed(2)} px`));
 });
 
 test('brightness: guided search lands on the lowest setting that keeps the 2% bar (expected 48)', () => {

@@ -171,7 +171,31 @@ function gauss(r) {
 }
 
 export function makeCamera(over = {}) {
-  return { corners: TRUE_CORNERS, kmax: 30, noise: 1.5, ambient: 0.0001, vignette: 0.18, awb: true, seed: 7, ...over };
+  // flare: share of light scattered into a wide glow around bright areas (lens flare,
+  // phone-camera halo); exposureBias: >1 overexposes like a phone that keeps the
+  // exposure it chose for a dark scene, so a white screen clips and blooms.
+  return { corners: TRUE_CORNERS, kmax: 30, noise: 1.5, ambient: 0.0001, vignette: 0.18, awb: true, seed: 7, flare: 0, flareRadius: 8, exposureBias: 1, ...over };
+}
+
+/** In-place approximate Gaussian blur of a CW×CH plane (three box passes each way). */
+function wideBlur(a, r) {
+  const tmp = new Float32Array(a.length);
+  const pass = (src, dst, n, stride, count, step) => {
+    for (let line = 0; line < count; line++) {
+      const base = line * step;
+      let acc = 0;
+      const at = (k) => src[base + Math.max(0, Math.min(n - 1, k)) * stride];
+      for (let k = -r; k <= r; k++) acc += at(k);
+      for (let k = 0; k < n; k++) {
+        dst[base + k * stride] = acc / (2 * r + 1);
+        acc += at(k + r + 1) - at(k - r);
+      }
+    }
+  };
+  for (let i = 0; i < 3; i++) {
+    pass(a, tmp, CW, 1, CH, CW);
+    pass(tmp, a, CH, CW, CW, 1);
+  }
 }
 
 /** Photograph a screen image. Returns an array of RGBA Uint8ClampedArray frames. */
@@ -210,6 +234,13 @@ export function shoot(screen, cam, nFrames = 8) {
       for (let c = 0; c < 3; c++) lin[c][o] = acc[c] / 4;
     }
   }
+  if (cam.flare > 0) {
+    for (const ch of lin) {
+      const glow = Float32Array.from(ch);
+      wideBlur(glow, cam.flareRadius);
+      for (let i = 0; i < ch.length; i++) ch[i] += cam.flare * glow[i];
+    }
+  }
   // centre-weighted auto exposure + gray-world white balance (like real webcams)
   const m = [0, 0, 0];
   let cnt = 0;
@@ -222,7 +253,7 @@ export function shoot(screen, cam, nFrames = 8) {
   }
   for (let c = 0; c < 3; c++) m[c] /= cnt;
   const Y = 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2];
-  const k = Math.min(cam.kmax, 0.18 / Math.max(1e-9, Y));
+  const k = Math.min(cam.kmax, 0.18 / Math.max(1e-9, Y)) * cam.exposureBias;
   const wb = cam.awb ? m.map((x) => Math.min(2, Math.max(0.5, Y / Math.max(1e-9, x)))) : [1, 1, 1];
   const r = rng(cam.seed);
   const frames = [];
