@@ -49,20 +49,32 @@ export function analyzeBlack(pattern, stats, cam, { threshold = 0.04 } = {}) {
   const bY = bars.map((id) => linY(stats[id].mean, cam));
   const notes = [];
 
-  // Noise floor: background gaps all show the same signal, so their scatter
-  // around a straight-line trend is what "no difference" looks like.
-  const sigSp = localNoise(gY);
+  // Background under each bar: the two gaps beside it, corrected for the local
+  // curvature (4-point cubic interpolation). A hot spot bends the background; this
+  // follows it instead of treating the bend as noise.
+  const curv = gY.map((g, j) => (j > 0 && j < gY.length - 1 ? g - (gY[j - 1] + gY[j + 1]) / 2 : null));
   const camBlackCode = Math.max(...gaps.map((id) => Math.max(...stats[id].mean)));
 
   const rows = bars.map((id, i) => {
-    const bg = (gY[i] + gY[i + 1]) / 2;
+    const cs = [curv[i], curv[i + 1]].filter((c) => c != null);
+    const bg = (gY[i] + gY[i + 1]) / 2 + (cs.length ? (cs.reduce((a, b) => a + b, 0) / cs.length) / 4 : 0);
+    // How far that estimate can be off: how much the curvature changes across this
+    // bar (small for a smooth hot spot or vignetting), plus 1% for unevenness that no
+    // interpolation sees.
+    const shape = cs.length === 2 ? Math.abs(cs[0] - cs[1]) / 4 : cs.length ? Math.abs(cs[0]) / 4 : 0;
+    const sigSp = Math.hypot(shape, 0.01 * bg);
     const tBar = tempSigmaY(stats[id], cam);
     const tBg = (tempSigmaY(stats[gaps[i]], cam) + tempSigmaY(stats[gaps[i + 1]], cam)) / 2;
-    const sigma = Math.sqrt(1.5 * sigSp * sigSp + tBar * tBar + tBg * tBg);
+    const sigma = Math.sqrt(sigSp * sigSp + tBar * tBar + tBg * tBg);
     const contrast = bg > 0 ? (bY[i] - bg) / bg : 0;
     const noise = bg > 0 ? sigma / bg : Infinity;
     const mdc = Math.max(threshold, 3 * noise);
-    return { label: labels[i], contrast, noise, mdc, visible: contrast >= mdc };
+    // Between "clearly there" (3 sigma) and "no sign of it" (1.5 sigma) the camera
+    // cannot call it. That band matters: raising Brightness lifts the black under
+    // the bars, which shrinks their contrast, so a forced "hidden" there would keep
+    // pushing Brightness up.
+    const unsure = contrast < mdc && contrast >= Math.max(threshold / 2, 1.5 * noise);
+    return { label: labels[i], contrast, noise, mdc, visible: contrast >= mdc, unsure };
   });
 
   let firstVisible = null;
@@ -93,7 +105,12 @@ export function analyzeBlack(pattern, stats, cam, { threshold = 0.04 } = {}) {
     }
   }
 
-  const pass = confidence === 'none' ? null : rows.slice(targetIndex).every((r) => r.visible);
+  let pass = confidence === 'none' ? null : rows.slice(targetIndex).every((r) => r.visible);
+  if (pass === false && tgt.unsure) {
+    pass = null;
+    confidence = 'none';
+    notes.unshift(`The ${labels[targetIndex]} bar shows faintly in the camera picture, but too close to the camera's noise to call. Judge it by eye: can you see the ${labels[targetIndex]} bar?`);
+  }
   return {
     test: pattern.id,
     pass,

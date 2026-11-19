@@ -35,6 +35,8 @@ export function makeProjector(over = {}) {
     overscan: 0,
     hdrClip: 1000,
     hdrExp: 0.8,
+    hotspot: 0, // extra brightness at the centre (screen gain / lens), e.g. 0.6 = +60%
+    hotspotWidth: 0.15, // its spread, as a fraction of the picture
     ...over,
   };
 }
@@ -87,6 +89,12 @@ function projectSdr(v, ch, p, sat) {
   return p.black + (1 - p.black) * Math.pow(x, p.gamma) + p.chanOffset[ch] * (1 - x);
 }
 
+/** A viewer's answer for an SDR bar (8-bit code) on black: visible above a Weber fraction. */
+export function eyeSeesBar(p, code, jnd = 0.04) {
+  const black = projectSdr(0, 1, p, 1);
+  return (projectSdr(code / 255, 1, p, 1) - black) / black > jnd;
+}
+
 function projectHdr(nits, p) {
   const sig = Math.max(0, nits);
   let rel = Math.pow(Math.min(sig, p.hdrClip) / p.hdrClip, p.hdrExp);
@@ -110,6 +118,7 @@ export function screenImage(pattern, p) {
       const sy = Math.min(SH - 1, Math.floor(v * SH + 1e-6));
       const i = sy * SW + sx;
       const o = y * SW + x;
+      const hs = p.hotspot ? 1 + p.hotspot * Math.exp(-(((x + 0.5) / SW - 0.5) ** 2 + ((y + 0.5) / SH - 0.5) ** 2) / (2 * p.hotspotWidth ** 2)) : 1;
       if (isHdr) {
         const L = projectHdr(R[i], p);
         out[0][o] = out[1][o] = out[2][o] = L;
@@ -123,9 +132,9 @@ export function screenImage(pattern, p) {
           g = Y + s * (g - Y);
           b = Y + s * (b - Y);
         }
-        out[0][o] = projectSdr(r, 0, p, s);
-        out[1][o] = projectSdr(g, 1, p, s);
-        out[2][o] = projectSdr(b, 2, p, s);
+        out[0][o] = hs * projectSdr(r, 0, p, s);
+        out[1][o] = hs * projectSdr(g, 1, p, s);
+        out[2][o] = hs * projectSdr(b, 2, p, s);
       }
     }
   }

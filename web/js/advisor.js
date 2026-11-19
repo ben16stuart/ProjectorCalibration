@@ -133,9 +133,11 @@ export function thresholdNext(s) {
 
   const passes = pts.filter((q) => q.p);
   const fails = pts.filter((q) => !q.p);
-  let trailing = 0;
-  for (let i = s.history.length - 1; i >= 0 && s.history[i].pass === last.pass; i--) trailing++;
-  // widen the step while the answer keeps coming back the same
+  // widen the step while the answer keeps coming back the same at new settings
+  // (measuring again at the same setting is not a reason to jump further)
+  const sameRun = new Set();
+  for (let i = s.history.length - 1; i >= 0 && s.history[i].pass === last.pass; i--) sameRun.add(s.history[i].value);
+  const trailing = sameRun.size;
   const step = Math.min(s.step * 2 ** Math.min(4, trailing - 1), Math.max(s.resolution, Math.round((tHi - tLo) / 4)));
   const snap = (t) => Math.round(t / s.resolution) * s.resolution;
 
@@ -239,7 +241,7 @@ function inconclusive(result, extra = []) {
 export function adviseBlack(result, { profile, searches, manualPass = null }) {
   const ctrl = profile.controls.brightness;
   const pass = manualPass ?? result.pass;
-  if (pass == null) return inconclusive(result, ['You can still finish this step by eye with the "I can see it / I can\'t" buttons.']);
+  if (pass == null) return inconclusive(result, ['Answer by eye with the Yes (Y) / No (N) buttons; the search continues from your answers.']);
   const key = `${profile.mode}:${result.test}:brightness`;
   const { min, max } = controlRange(ctrl);
   const s = searchFor(searches, key, () => newThresholdSearch({ goal: 'min-pass', min, max }));

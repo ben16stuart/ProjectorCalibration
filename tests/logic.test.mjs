@@ -47,6 +47,16 @@ test('threshold search: a contradicting newer reading wins', () => {
   assert.ok(nx.value > 52);
 });
 
+test('threshold search: measuring again at the same setting does not widen the step', () => {
+  // A real session: three "hidden" readings at Brightness 71 made the next step +20.
+  const s = newThresholdSearch({ goal: 'min-pass', min: 0, max: 100 });
+  for (let i = 0; i < 3; i++) thresholdRecord(s, 71, false);
+  assert.equal(thresholdNext(s).value, 76);
+  // a new setting with the same answer does widen it
+  thresholdRecord(s, 76, false);
+  assert.equal(thresholdNext(s).value, 86);
+});
+
 test('proportional search: steps a preset list to the target', () => {
   const s = newPropSearch({ target: 2.4, tol: 0.08, min: 0, max: 4, gainGuess: 0.15, maxStep: 2 });
   let idx = 1;

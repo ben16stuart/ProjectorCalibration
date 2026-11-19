@@ -7,7 +7,7 @@ import { PatchStats, lumaOf } from '../web/js/stats.js';
 import { cameraModel } from '../web/js/color.js';
 import { ANALYZERS } from '../web/js/analysis.js';
 import { ADVISORS, defaultProfile } from '../web/js/advisor.js';
-import { makeProjector, makeCamera, shootPattern, CW, CH, TRUE_CORNERS } from './sim.mjs';
+import { makeProjector, makeCamera, shootPattern, eyeSeesBar, CW, CH, TRUE_CORNERS } from './sim.mjs';
 
 const cam = makeCamera();
 const srgbCam = cameraModel('srgb');
@@ -58,7 +58,13 @@ function runLoop(id, control, start, projOver = {}, maxIt = 16) {
     proj[control] = profile.controls[control].value;
     visited.push(proj[control]);
     const res = analyze(id, proj);
-    const adv = ADVISORS[id](res, { profile, searches, room: 'dark' });
+    let adv = ADVISORS[id](res, { profile, searches, room: 'dark' });
+    if (res.pass == null && id === 'black') {
+      // the camera can't call it: answer by eye, as the app asks the user to
+      const pat = getPattern(id);
+      const manualPass = eyeSeesBar(proj, pat.meta.levels[pat.meta.targetIndex]);
+      adv = ADVISORS[id](res, { profile, searches, room: 'dark', manualPass });
+    }
     if (adv.done) return { best: adv.best?.value ?? null, adv, visited };
     assert.ok(adv.suggestion, `no suggestion at iteration ${it}: ${adv.headline}`);
     profile.controls[control].value = adv.suggestion.to;
@@ -88,6 +94,28 @@ test('finds the image edge, not the glow, when a phone camera overexposes the wh
 test('brightness: guided search lands on the lowest setting that keeps the 2% bar (expected 48)', () => {
   for (const start of [60, 35]) {
     const r = runLoop('black', 'brightness', start);
+    assert.ok(r.best >= 47 && r.best <= 49, `start ${start}: best ${r.best}, visited ${r.visited.join(',')}`);
+    assert.ok(r.visited.length <= 9, `too many steps: ${r.visited.join(',')}`);
+  }
+});
+
+test('brightness: a hot spot does not hide the 2% bar', () => {
+  // A bright centre bends the black background between the gaps. Counting that bend
+  // as noise hid the 2% bar at correct and too-high settings, and the search then
+  // kept raising Brightness (a real user was sent from ~50 towards 91).
+  const camera = makeCamera({ noise: 3, flare: 0.2, flareRadius: 16, exposureBias: 3, seed: 3 });
+  for (const brightness of [50, 60, 70]) {
+    const pat = getPattern('black');
+    const ps = new PatchStats(buildSampler(H, measuredElements(pat), CW, CH));
+    for (const f of shootPattern('black', makeProjector({ brightness, hotspot: 0.6 }), camera, 6)) ps.addFrame(f);
+    const res = ANALYZERS.black(pat, ps.result(), srgbCam);
+    assert.notEqual(res.pass, false, `brightness ${brightness}: 2% called hidden (contrast ${res.rows[1].contrast.toFixed(3)}, needs ${res.rows[1].mdc.toFixed(3)})`);
+  }
+});
+
+test('brightness: with a hot spot the guided search still lands on 47-49', () => {
+  for (const start of [71, 35]) {
+    const r = runLoop('black', 'brightness', start, { hotspot: 0.6 });
     assert.ok(r.best >= 47 && r.best <= 49, `start ${start}: best ${r.best}, visited ${r.visited.join(',')}`);
     assert.ok(r.visited.length <= 9, `too many steps: ${r.visited.join(',')}`);
   }
