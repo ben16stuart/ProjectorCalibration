@@ -61,10 +61,11 @@ export const PRESETS = {
         lightOutput: list('Lamp mode (Brightness Mode / ECO)', ['ECO', 'Normal'], 'Normal'),
         hdr: list('HDR', ['Off', 'Auto'], 'Auto', { advisory: true }),
       };
-      // The Acer's HDR menu does not expose a numeric tone-mapping slider on
-      // every firmware. If yours has HDR picture modes or an HDR brightness
-      // setting, enable this and list its options from dark to bright.
-      if (mode === 'hdr') c.hdrToneMap = list('HDR mode / HDR brightness', ['Detail', 'Film', 'Standard', 'Bright'], 'Standard', { higherIsBrighter: true, enabled: false });
+      // HDR level 1-4: the projector picks 4 by itself when HDR arrives (seen on a
+      // real H7850). Which end leaves more room for highlights isn't documented; the
+      // guided search starts by assuming higher = brighter and learns the real
+      // direction from the second measurement.
+      if (mode === 'hdr') c.hdrToneMap = list('HDR level', ['1', '2', '3', '4'], '4', { higherIsBrighter: true });
       return c;
     },
     tips: [
@@ -546,7 +547,7 @@ export function adviseHdrHighlights(result, { profile, searches }) {
   if (nx.done) return { status: 'info', headline, detail: [...detail, `${ctrl.label} is already at its limit.`], suggestion: null, done: true, best: null };
   return {
     status: 'adjust',
-    headline: `${headline}: set ${ctrl.label} to ${nx.value} (now ${cur})`,
+    headline: `${headline}: set ${ctrl.label} to ${formatValue(ctrl, nx.value)} (now ${formatValue(ctrl, cur)})`,
     detail,
     suggestion: suggestion('hdrToneMap', ctrl, cur, nx.value),
     done: false,

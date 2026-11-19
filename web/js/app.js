@@ -55,6 +55,14 @@ function freshState(presetId = 'acer_h7850') {
 }
 let state = store.load() || freshState();
 if (!state.profiles?.sdr || !state.profiles?.hdr) state = freshState();
+// Early Acer H7850 profiles guessed HDR modes named Detail..Bright (switched off).
+// The projector actually has HDR levels 1-4; swap in the real control.
+{
+  const tm = state.profiles.hdr.controls?.hdrToneMap;
+  if (state.presetId === 'acer_h7850' && tm?.kind === 'list' && tm.options?.[0] === 'Detail') {
+    state.profiles.hdr.controls.hdrToneMap = defaultProfile('hdr', 'acer_h7850').controls.hdrToneMap;
+  }
+}
 let saveTimer = null;
 function save() {
   clearTimeout(saveTimer);
